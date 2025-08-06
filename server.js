@@ -27,6 +27,7 @@ function broadcastCount() {
   });
 }
 
+// HTML page for browser
 app.get('/', (req, res) => {
   res.send(`
     <html>
@@ -43,6 +44,11 @@ app.get('/', (req, res) => {
       </body>
     </html>
   `);
+});
+
+// Active sessions endpoint
+app.get('/active', (req, res) => {
+  res.json({ active: connectedClients });
 });
 
 server.listen(PORT, () => {
