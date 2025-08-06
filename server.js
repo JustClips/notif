@@ -9,20 +9,22 @@ const wss = new WebSocket.Server({ server });
 
 app.use(express.json());
 
+// --- STATE VARIABLES ---
 let connectedClients = 0;
+let activeBeacons = new Map();
+let latestBrainrots = [];
+let currentJobId = null; // <-- NEW: Variable to hold the job ID
 
-// WebSocket tracking for browser-based connections
+// --- WebSocket tracking ---
 wss.on('connection', function connection(ws) {
   connectedClients++;
   broadcastCount();
-
   ws.on('close', function() {
     connectedClients--;
     broadcastCount();
   });
 });
 
-// Broadcast to WebSocket clients
 function broadcastCount() {
   wss.clients.forEach(function each(client) {
     if (client.readyState === WebSocket.OPEN) {
@@ -31,15 +33,36 @@ function broadcastCount() {
   });
 }
 
-// --- Beacon tracking for Roblox Lua clients ---
-let activeBeacons = new Map(); // key: userId, value: last seen timestamp (ms)
+// --- NEW: JOB HANDLING ENDPOINTS ---
 
-// --- Brainrot info from Lua ESP script ---
-let latestBrainrots = []; // array of most recent brainrot objects (up to 100)
+// POST /job: The Python bot calls this to submit a new job
+app.post('/job', (req, res) => {
+  const { jobId } = req.body;
+  if (!jobId) {
+    return res.status(400).json({ error: 'Missing jobId field' });
+  }
+  currentJobId = jobId;
+  console.log(`[Job] New job received and stored: ${jobId.substring(0, 20)}...`);
+  res.json({ ok: true, message: 'Job submitted successfully.' });
+});
 
-// POST endpoint for reporting brainrots
+// GET /job: The Roblox Lua script calls this to get the current job
+app.get('/job', (req, res) => {
+  if (currentJobId) {
+    const jobToProcess = currentJobId;
+    console.log(`[Job] Job delivered to a client: ${jobToProcess.substring(0, 20)}...`);
+    currentJobId = null; // Clear the job immediately after delivering it
+    res.json({ jobId: jobToProcess });
+  } else {
+    // No job available
+    res.json({ jobId: null });
+  }
+});
+
+
+// --- Your existing endpoints (unchanged) ---
+
 app.post('/brainrot', (req, res) => {
-  // Expected fields: name, dps, rarity (from Lua script)
   const brainrot = req.body;
   if (!brainrot.name || !brainrot.dps || !brainrot.rarity) {
     return res.status(400).json({ error: 'Missing fields (need name, dps, rarity)' });
@@ -49,9 +72,7 @@ app.post('/brainrot', (req, res) => {
   res.json({ ok: true });
 });
 
-// GET endpoint for viewing reported brainrots in browser/curl
 app.get('/brainrot', (req, res) => {
-  // Only show the key fields requested
   res.json(
     latestBrainrots.slice(0, 25).map(b => ({
       name: b.name,
@@ -71,7 +92,6 @@ app.post('/beacon', (req, res) => {
   }
 });
 
-// Clean out beacons older than 60 seconds
 setInterval(() => {
   const now = Date.now();
   for (const [userId, lastSeen] of activeBeacons) {
@@ -81,7 +101,6 @@ setInterval(() => {
   }
 }, 15000);
 
-// --- Active sessions endpoint ---
 app.get('/active', (req, res) => {
   res.json({
     active: connectedClients + activeBeacons.size,
@@ -90,7 +109,6 @@ app.get('/active', (req, res) => {
   });
 });
 
-// --- HTML homepage for browser ---
 app.get('/', (req, res) => {
   res.send(`
     <html>
@@ -105,7 +123,6 @@ app.get('/', (req, res) => {
             const data = JSON.parse(ev.data);
             document.getElementById('count').innerText = data.connected;
           }
-          // Poll latest brainrots every 5s
           function pollBrainrots() {
             fetch('/brainrot').then(r=>r.json()).then(js=>{
               document.getElementById('brainrots').innerText =
