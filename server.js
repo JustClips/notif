@@ -7,8 +7,11 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
+app.use(express.json());
+
 let connectedClients = 0;
 
+// WebSocket tracking for browser-based connections
 wss.on('connection', function connection(ws) {
   connectedClients++;
   broadcastCount();
@@ -19,6 +22,7 @@ wss.on('connection', function connection(ws) {
   });
 });
 
+// Broadcast to WebSocket clients
 function broadcastCount() {
   wss.clients.forEach(function each(client) {
     if (client.readyState === WebSocket.OPEN) {
@@ -27,7 +31,40 @@ function broadcastCount() {
   });
 }
 
-// HTML page for browser
+// --- Beacon tracking for Roblox Lua clients ---
+let activeBeacons = new Map(); // key: userId, value: last seen timestamp (ms)
+
+app.post('/beacon', (req, res) => {
+  const { userId } = req.body;
+  if (userId) {
+    activeBeacons.set(userId, Date.now());
+    res.json({ ok: true });
+  } else {
+    res.status(400).json({ error: 'Missing userId' });
+  }
+});
+
+// Clean out beacons older than 60 seconds
+setInterval(() => {
+  const now = Date.now();
+  for (const [userId, lastSeen] of activeBeacons) {
+    if (now - lastSeen > 60000) {
+      activeBeacons.delete(userId);
+    }
+  }
+}, 15000);
+
+// --- Active sessions endpoint ---
+app.get('/active', (req, res) => {
+  // Active means: browser WebSocket connections + Roblox clients with recent beacon
+  res.json({
+    active: connectedClients + activeBeacons.size,
+    websocket: connectedClients,
+    beacon: activeBeacons.size
+  });
+});
+
+// --- HTML homepage for browser ---
 app.get('/', (req, res) => {
   res.send(`
     <html>
@@ -44,11 +81,6 @@ app.get('/', (req, res) => {
       </body>
     </html>
   `);
-});
-
-// Active sessions endpoint
-app.get('/active', (req, res) => {
-  res.json({ active: connectedClients });
 });
 
 server.listen(PORT, () => {
