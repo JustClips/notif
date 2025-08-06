@@ -37,6 +37,30 @@ let activeBeacons = new Map(); // key: userId, value: last seen timestamp (ms)
 // --- Brainrot info from Lua ESP script ---
 let latestBrainrots = []; // array of most recent brainrot objects (up to 100)
 
+// POST endpoint for reporting brainrots
+app.post('/brainrot', (req, res) => {
+  // Expected fields: name, dps, rarity (from Lua script)
+  const brainrot = req.body;
+  if (!brainrot.name || !brainrot.dps || !brainrot.rarity) {
+    return res.status(400).json({ error: 'Missing fields (need name, dps, rarity)' });
+  }
+  latestBrainrots.unshift(brainrot);
+  if (latestBrainrots.length > 100) latestBrainrots.pop();
+  res.json({ ok: true });
+});
+
+// GET endpoint for viewing reported brainrots in browser/curl
+app.get('/brainrot', (req, res) => {
+  // Only show the key fields requested
+  res.json(
+    latestBrainrots.slice(0, 25).map(b => ({
+      name: b.name,
+      dps: b.dps,
+      rarity: b.rarity
+    }))
+  );
+});
+
 app.post('/beacon', (req, res) => {
   const { userId } = req.body;
   if (userId) {
@@ -45,21 +69,6 @@ app.post('/beacon', (req, res) => {
   } else {
     res.status(400).json({ error: 'Missing userId' });
   }
-});
-
-// --- Receive Brainrot ESP info from Lua client ---
-app.post('/brainrot', (req, res) => {
-  // Expected fields: name, rarity, dps, trait, boost, position, distance, time, [userId]
-  const brainrot = req.body;
-  // Optional: validate minimal required fields
-  if (!brainrot.name || !brainrot.rarity || !brainrot.position) {
-    return res.status(400).json({ error: 'Missing fields' });
-  }
-  // Store up to 100 recent brainrots
-  latestBrainrots.unshift(brainrot);
-  if (latestBrainrots.length > 100) latestBrainrots.pop();
-
-  res.json({ ok: true });
 });
 
 // Clean out beacons older than 60 seconds
@@ -74,7 +83,6 @@ setInterval(() => {
 
 // --- Active sessions endpoint ---
 app.get('/active', (req, res) => {
-  // Active means: browser WebSocket connections + Roblox clients with recent beacon
   res.json({
     active: connectedClients + activeBeacons.size,
     websocket: connectedClients,
@@ -99,14 +107,9 @@ app.get('/', (req, res) => {
           }
           // Poll latest brainrots every 5s
           function pollBrainrots() {
-            fetch('/latest-brainrots').then(r=>r.json()).then(js=>{
+            fetch('/brainrot').then(r=>r.json()).then(js=>{
               document.getElementById('brainrots').innerText =
-                js.map(b=>
-                  b.name + ' | ' + b.rarity + ' | ' + b.dps + ' | ' +
-                  (typeof b.trait === "undefined" ? "" : b.trait + ' | ')
-                  + (typeof b.boost === "undefined" ? "" : b.boost + 'x | ')
-                  + 'Dist:' + (b.distance ? b.distance.toFixed(1) : "?")
-                ).join("\\n");
+                js.map(b=>b.name + ' | ' + b.dps + ' | ' + b.rarity).join("\\n");
             });
           }
           setInterval(pollBrainrots, 5000);
@@ -115,11 +118,6 @@ app.get('/', (req, res) => {
       </body>
     </html>
   `);
-});
-
-// --- Endpoint to get latest brainrots for display ---
-app.get('/latest-brainrots', (req, res) => {
-  res.json(latestBrainrots.slice(0, 25)); // show up to 25 recent
 });
 
 server.listen(PORT, () => {
