@@ -122,12 +122,21 @@ app.get('/players/active', (req, res) => {
 });
 
 // Brainrots endpoint - brainrots auto-delete after 30 seconds
+// Accepts moneyPerSec from Discord bot and from Lua, string or number, empty or missing is set to "unknown"
 app.post('/brainrots', (req, res) => {
   const data = req.body;
 
   let name = typeof data.name === "string" ? data.name.trim() : "";
   let serverId = typeof data.serverId === "string" ? data.serverId.trim() : "";
   let jobId = typeof data.jobId === "string" ? data.jobId.trim() : "";
+
+  // Accept from Discord bot: moneyPerSec (string), and from Lua (may be undefined)
+  let moneyPerSec = "unknown";
+  if (typeof data.moneyPerSec === "string" && data.moneyPerSec.trim() !== "") {
+    moneyPerSec = data.moneyPerSec.trim();
+  } else if (typeof data.moneyPerSec === "number") {
+    moneyPerSec = String(data.moneyPerSec);
+  }
 
   if (!name || !serverId || !jobId) {
     return res.status(400).json({ error: "Missing name, serverId, or jobId" });
@@ -142,7 +151,7 @@ app.post('/brainrots', (req, res) => {
     serverId: serverId,
     jobId: jobId,
     players: data.players,
-    moneyPerSec: data.moneyPerSec,
+    moneyPerSec: moneyPerSec,
     lastSeen: now(),
     active: true,
     source: source
